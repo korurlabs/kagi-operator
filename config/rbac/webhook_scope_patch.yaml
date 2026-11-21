@@ -1,0 +1,33 @@
+# Grants the operator write access to its OWN MutatingWebhookConfiguration and
+# nothing else.
+#
+# Cluster-wide update on this resource is a cluster-takeover primitive: anyone
+# able to run a pod in the operator's namespace could mount its ServiceAccount
+# token and rewrite ANY webhook in the cluster -- set rules to */*, clear the
+# objectSelector, and point clientConfig at their own pod -- intercepting every
+# object admitted cluster-wide, including through other vendors' webhooks.
+#
+# The operator only ever writes the one object it owns: cert-controller updates
+# only the webhooks it was configured with, and both CABundleSyncer.SyncOnce and
+# AwaitWebhookCABundle address it by name. So the write verbs are scoped with
+# resourceNames here, while list/watch (which cannot take resourceNames -- the
+# informer needs the collection) stay in the controller-gen marker in
+# internal/certs/rotation.go.
+#
+# The name below is the UNPREFIXED base name, matching
+# config/webhook/manifests.yaml. webhookname_ref.yaml registers it as a
+# nameReference, so kustomize applies the same namePrefix/nameSuffix it applies
+# to the MutatingWebhookConfiguration itself -- the two can no longer drift
+# apart when the prefix changes.
+- op: add
+  path: /rules/-
+  value:
+    apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+    resourceNames:
+      - mutating-webhook-configuration
+    verbs:
+      - get
+      - update

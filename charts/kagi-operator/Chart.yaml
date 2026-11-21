@@ -1,0 +1,101 @@
+apiVersion: v2
+name: kagi-operator
+description: >-
+  Kubernetes operator for Kagi (https://kagi.pw) — syncs secrets and TLS
+  certificates from Kagi into native Kubernetes Secrets (KagiSecret,
+  KagiCertificate CRDs), and can inject a secretless-delivery init container
+  into labeled application pods via a mutating admission webhook so workloads
+  never need a long-lived credential mounted at all.
+type: application
+version: 0.4.0
+appVersion: 0.4.0
+
+home: https://kagi.pw
+icon: https://kagi.pw/favicon.svg
+# Artifact Hub renders this as the listing's prominent "source" link.
+sources:
+  - https://github.com/korurlabs/kagi-operator
+keywords:
+  - kagi
+  - secrets
+  - secrets-management
+  - operator
+  - admission-webhook
+  - secretless
+  - workload-identity
+  - certificates
+maintainers:
+  - name: Korur
+    email: support@kagi.pw
+    url: https://korur.com
+
+annotations:
+  # Marks this chart as an Operator Lifecycle-style chart on Artifact Hub and
+  # gives it the "operator" badge + capability level shown on the listing.
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: "Basic Install"
+
+  # Matches LICENSE (Apache-2.0) and the Apache-2.0
+  # boilerplate header (hack/boilerplate.go.txt) stamped into every Go source
+  # file in this repository.
+  artifacthub.io/license: Apache-2.0
+
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/korurlabs/kagi-operator
+    - name: documentation
+      url: https://docs.kagi.pw
+
+  # The operator image ships BOTH binaries (manager + the static kagi-init
+  # launcher, see cmd/kagi-init) in a single distroless image — see
+  # Dockerfile. kagi-init is not published as a
+  # separate image today, so only one image is listed here. If a future
+  # release publishes kagi-init standalone (see values.yaml
+  # injection.kagiInitImage), add a second entry here named "kagi-init".
+  artifacthub.io/images: |
+    - name: kagi-operator
+      image: ghcr.io/korurlabs/kagi-operator:0.4.0
+
+  artifacthub.io/crds: |
+    - kind: KagiSecret
+      version: v1alpha1
+      name: kagisecrets.kagi.pw
+      displayName: Kagi Secret
+      description: >-
+        Syncs a Kagi SECRETS app's environment into a native Kubernetes
+        Secret (mode: Secret, default), or delivers it directly to labeled
+        workloads without ever materializing a standalone Secret (mode:
+        Injected). Supports rolling out named Deployments / label-selected
+        workloads when the synced version changes.
+    - kind: KagiCertificate
+      version: v1alpha1
+      name: kagicertificates.kagi.pw
+      displayName: Kagi Certificate
+      description: >-
+        Syncs a Kagi-managed TLS certificate (leaf + chain + key) into a
+        native Kubernetes Secret of type kubernetes.io/tls, tracking
+        expiry via status.notAfter / status.expiresInDays.
+
+  artifacthub.io/crdsExamples: |
+    - apiVersion: kagi.pw/v1alpha1
+      kind: KagiSecret
+      metadata:
+        name: kagi-village-api
+        namespace: kagi-operator-system
+      spec:
+        appId: "00000000-0000-0000-0000-0000000000aa"
+        environment: production
+        tokenSecret:
+          name: kagi-token-village-api
+        managedSecret:
+          name: village-api-secret
+          namespace: village
+    - apiVersion: kagi.pw/v1alpha1
+      kind: KagiCertificate
+      metadata:
+        name: sensey-io-cert
+      spec:
+        certificateID: "00000000-0000-0000-0000-0000000000cc"
+        managedSecret:
+          name: sensey-io-tls
+          namespace: kagi

@@ -1,0 +1,123 @@
+Kagi operator {{ .Chart.AppVersion }} installed into namespace {{ .Release.Namespace }}.
+
+{{- if eq .Values.auth.mode "exchange" }}
+
+The operator authenticates through the workload token exchange (auth.mode
+exchange): no PAT is stored. In the Kagi portal, under Integrations, connect
+this cluster and give it a workload role whose Kubernetes rule trusts
+namespace {{ .Release.Namespace }} and ServiceAccount
+{{ include "kagi-operator.serviceAccountName" . }}, scoped to the
+(app, environment) pairs your KagiSecrets read. Until then each KagiSecret
+reports Ready=False with reason WorkloadAccessDenied. A KagiSecret needs
+spec.appId; a KagiCertificate needs its own spec.tokenSecret.
+{{- else if not (or .Values.auth.existingSecret .Values.auth.token) }}
+
+WARNING: no auth.existingSecret / auth.token set -- no default Kagi PAT was
+configured. The operator will start, but every KagiSecret/KagiCertificate you
+create MUST carry its own spec.tokenSecret, or reconciliation will fail with
+"no token secret configured". Set --set auth.existingSecret=<secret-name> (or
+auth.token for a quick test) to configure a cluster-wide default.
+{{- end }}
+
+{{- if and (gt (.Values.replicaCount | int) 1) (not .Values.leaderElection.enabled) }}
+
+WARNING: replicaCount={{ .Values.replicaCount }} but leaderElection.enabled is
+false. Every replica will try to reconcile the same objects concurrently.
+Set --set leaderElection.enabled=true before running more than 1 replica.
+{{- end }}
+
+{{- if .Values.injection.enabled }}
+
+Pod injection (secretless workload-identity delivery) is ENABLED.
+{{- if .Values.injection.existingCertSecret }}
+
+Webhook TLS uses YOUR certificate, from the Secret
+{{ .Values.injection.existingCertSecret }} (namespace {{ .Release.Namespace }}).
+That Secret must exist and carry tls.crt, tls.key and ca.crt: it is mounted
+non-optionally, so the pod will not start until it does, and the operator
+refuses to start if any of the three keys is missing.
+
+The operator NEVER writes to it. You own issuing and rotating it; the operator
+publishes your ca.crt onto the
+{{ include "kagi-operator.fullname" . }}-mutating-webhook-configuration caBundle
+and re-checks once a minute, so admission survives your PKI rotating the CA.
+Make sure the certificate's SANs cover
+{{ include "kagi-operator.webhookServiceName" . }}.{{ .Release.Namespace }}.svc
+
+SECURITY: write access to that Secret is equivalent to admission control over
+every injected pod -- its ca.crt becomes an API server trust anchor. The
+operator's verification catches partial tampering, not a coherent replacement;
+RBAC on the Secret is the control. See "Bringing your own certificate" in the
+chart README.
+
+To go back to zero-configuration TLS, unset injection.existingCertSecret.
+{{- else }}
+
+Webhook TLS is handled automatically -- there is nothing to install, configure
+or renew. On startup the operator issues its own serving certificate into the
+Secret {{ include "kagi-operator.webhookCertSecretName" . }} (namespace
+{{ .Release.Namespace }}), publishes the CA onto the
+{{ include "kagi-operator.fullname" . }}-mutating-webhook-configuration
+caBundle, and rotates it ahead of expiry. cert-manager is NOT required.
+
+SECURITY: write access to that Secret is equivalent to admission control over
+every injected pod, on this path exactly as on the bring-your-own one. RBAC on
+it is the control. A REPEATING WebhookCertificateTampered Warning Event on the
+{{ include "kagi-operator.fullname" . }}-mutating-webhook-configuration means
+someone is actively rewriting the Secret. Repair is automatic and causes no
+outage, so that Event is the ONLY signal you will get. See "Webhook TLS is
+handled automatically" in the chart README.
+
+If your organization mandates certificates from its own PKI, see
+injection.existingCertSecret in values.yaml.
+{{- end }}
+
+The webhook only starts serving once that caBundle matches the certificate it
+serves, so give it a few seconds after install before creating labeled pods.
+
+To opt an application pod into secretless secret delivery, label its pod
+template with `kagi.pw/inject: "true"` and set the required annotations
+`kagi.pw/app-id` and `kagi.pw/environment` (see internal/webhook/pod_mutator.go
+for the full annotation list). The target container MUST declare an explicit
+`command` -- the webhook cannot read the image ENTRYPOINT.
+{{- else }}
+
+Pod injection (secretless workload-identity delivery) is DISABLED
+(injection.enabled=false). KagiSecret/KagiCertificate objects in "Secret" mode
+still work; only the mutating admission webhook is skipped.
+{{- end }}
+
+{{- if .Values.crds.install }}
+
+CRDs installed: kagisecrets.kagi.pw, kagicertificates.kagi.pw
+(helm.sh/resource-policy: keep={{ .Values.crds.keep }}).
+NOTE: these CRDs are templated rather than placed in Helm's crds/ directory,
+so (unlike a normal Helm chart) `helm upgrade` WILL apply CRD schema changes
+across chart versions -- and flipping crds.install to false on an upgrade
+WILL attempt to delete them. See the crds.install comment in values.yaml.
+{{- else }}
+
+CRDs were NOT installed by this release (crds.install=false). Install them
+yourself, or from another release of this chart, before creating any
+KagiSecret/KagiCertificate objects.
+{{- end }}
+
+Try it -- fill in your own SECRETS app ID and apply:
+
+  apiVersion: kagi.pw/v1alpha1
+  kind: KagiSecret
+  metadata:
+    name: my-app
+    namespace: {{ .Release.Namespace }}
+  spec:
+    appId: "<your Kagi SECRETS app ID>"
+    environment: production
+    managedSecret:
+      name: my-app-secret
+      namespace: {{ .Release.Namespace }}
+{{- if and (ne .Values.auth.mode "exchange") (not (or .Values.auth.existingSecret .Values.auth.token)) }}
+    tokenSecret:
+      name: <the Secret holding your Kagi PAT>
+{{- end }}
+
+Docs: https://docs.kagi.pw

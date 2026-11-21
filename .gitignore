@@ -1,0 +1,10 @@
+# Local tool binaries and envtest assets (make test, make build).
+bin/
+# make build-installer output.
+dist/
+cover.out
+Dockerfile.cross
+# Editors.
+.idea/
+.vscode/
+*.swp

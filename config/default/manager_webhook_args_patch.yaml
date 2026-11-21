@@ -1,0 +1,14 @@
+# Appends the webhook flag to the manager's args.
+#
+# This is a JSON 6902 patch on purpose. Its strategic-merge sibling
+# (manager_webhook_patch.yaml) cannot carry args: a strategic-merge patch replaces
+# a []string field wholesale, so setting args there wiped out every other flag --
+# the rendered Deployment ran with ONLY --webhook-cert-path, no --leader-elect, no
+# --health-probe-bind-address and no --metrics-bind-address, while the metrics
+# Service still advertised a port nothing was listening on.
+#
+# Append (`/args/-`) rather than an index so this stays correct no matter how many
+# flags the base or manager_metrics_patch.yaml contribute.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs

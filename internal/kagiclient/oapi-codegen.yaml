@@ -1,0 +1,27 @@
+# oapi-codegen v2 configuration for the operator client's generated wire models
+# (internal/kagiclient/zz_generated_api.go). Run through `make api-generate` in
+# the repository root, never directly: the input is the operator bundle
+# contract/clients/operator.json.
+#
+# Models only, so the generated file never imports github.com/oapi-codegen/runtime. The mappings
+# match the SDK, except date-time, which is time.Time as in the client's existing
+# KagiSecretVersionResponse and KagiWorkloadTokenExchangeResponse.
+package: kagiclient
+output: zz_generated_api.go
+generate:
+  models: true
+compatibility:
+  always-prefix-enum-values: true
+output-options:
+  skip-prune: true
+  # Keeps the client's ID / ParentID / OwnerID spelling; the default normalizer emits Id / ParentId.
+  name-normalizer: ToCamelCaseWithInitialisms
+  type-mapping:
+    string:
+      formats:
+        uuid: { type: string }
+        date-time: { type: time.Time, import: time }
+        date: { type: string }
+        email: { type: string }
+        byte: { type: string }
+        binary: { type: string }

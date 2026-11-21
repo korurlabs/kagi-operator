@@ -1,0 +1,8 @@
+# Build context is the repository root. Keep out what the image build never
+# reads: local tool binaries, build output and repository metadata.
+.git
+.github
+bin
+dist
+cover.out
+Dockerfile.cross

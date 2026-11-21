@@ -1,0 +1,20 @@
+apiVersion: kagi.pw/v1alpha1
+kind: KagiCertificate
+metadata:
+  name: sensey-io-cert
+spec:
+  # certificateID is the certificate's stable internal ID (durable machine
+  # binding). Resolve it once from a certificate node path at setup and pin it
+  # here. Preferred over folderPath.
+  certificateID: "00000000-0000-0000-0000-0000000000cc"
+  # folderPath is the human-readable certificate node path (folder segments plus
+  # the final certificate slug, e.g. /team-tls/sensey-io), used only when
+  # certificateID is empty (resolved to a certificate ID once per reconcile).
+  # folderPath: /sensey-io
+  # organization is optional. When set it is sent as an X-Organization-ID
+  # cross-check and MUST match the PAT's bound org, or the Kagi API returns 403.
+  # Leave empty to use the token's bound org (the default, single-org behavior).
+  # organization: "00000000-0000-0000-0000-000000000001"
+  managedSecret:
+    name: sensey-io-tls
+    namespace: kagi

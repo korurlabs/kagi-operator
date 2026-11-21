@@ -1,0 +1,277 @@
+## kagi-operator — default values.
+## See README.md for the full values contract and setup walkthrough.
+
+# -- Number of operator replicas. Leader election (leaderElection.enabled)
+# MUST be turned on before scaling this above 1, or multiple replicas will
+# race each other reconciling the same KagiSecret/KagiCertificate objects.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/korurlabs/kagi-operator
+  # -- Image tag. Empty string falls back to .Chart.AppVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for the operator image (and, if injection.kagiInitImage
+# points at a private registry, for the injected init container too).
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Base URL of the Kagi API. Change only for self-hosted Kagi
+# (ENTERPRISE plan) or non-production testing.
+kagiApiUrl: https://api.kagi.pw
+
+# -- Maximum number of KagiSecret objects reconciled concurrently. Higher
+# drains a backlog faster at the cost of more concurrent Kagi API load.
+# (KagiCertificate reconciles are not affected by this setting.)
+maxConcurrentReconciles: 4
+
+leaderElection:
+  # -- Enable controller-runtime leader election. Required (and the chart
+  # will warn in NOTES.txt if it isn't set) whenever replicaCount > 1.
+  enabled: false
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# -- Standard pod scheduling knobs. Deliberately empty by default so this
+# chart is not coupled to any particular cluster's node pools/taints — set
+# these explicitly for your own environment.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+serviceAccount:
+  # -- Create a ServiceAccount for the operator. Set to false and provide
+  # `name` to use a pre-existing ServiceAccount instead.
+  create: true
+  annotations: {}
+  name: ""
+
+rbac:
+  # -- Create the ClusterRole/ClusterRoleBinding (+ namespaced leader-election
+  # Role/RoleBinding, + metrics-auth ClusterRole/ClusterRoleBinding when
+  # metrics.secure is true) the operator needs. Disable only if you manage
+  # RBAC out of band.
+  create: true
+
+# -----------------------------------------------------------------------------
+# auth — how the operator authenticates to the Kagi API (control plane).
+#
+# Two modes (auth.mode, the operator's --kagi-auth flag):
+#
+# - token-secret (default): a static Kagi Personal Access Token (PAT), wired
+#   via --default-token-secret / --default-token-namespace from the keys
+#   below. Existing installs keep this mode unchanged.
+# - exchange: no stored PAT. The chart mounts a projected ServiceAccount token
+#   (audience auth.exchange.audience) and the operator exchanges it at
+#   /kagi/auth/token for a short-lived token per (app, environment) pair. In
+#   the portal, a workload role must trust this release's namespace and
+#   ServiceAccount and cover the pairs your KagiSecrets read. Under exchange a
+#   KagiSecret needs spec.appId (spec.folderPath cannot be resolved) and a
+#   KagiCertificate needs its own spec.tokenSecret; kagiApiUrl must be the
+#   public API host.
+#
+# Either way, individual KagiSecret/KagiCertificate objects may name their own
+# spec.tokenSecret to override the default per object.
+# -----------------------------------------------------------------------------
+auth:
+  # -- token-secret (PAT from the keys below) or exchange (projected
+  # ServiceAccount token, no PAT). Any other value fails the render.
+  mode: token-secret
+  exchange:
+    # -- Audience of the projected ServiceAccount token: the Kagi API host,
+    # the audience the exchange demands.
+    audience: api.kagi.pw
+    # -- Lifetime of the projected token; the kubelet rotates it before expiry.
+    expirationSeconds: 3600
+  # -- Name of a Secret you create yourself containing the Kagi PAT under
+  # `existingSecretKey`. RECOMMENDED for anything beyond a quick local test —
+  # keeps the PAT out of `helm install --set` shell history / values files.
+  existingSecret: ""
+  # -- Key within existingSecret (or the chart-created Secret) holding the PAT.
+  # Empty (default): the operator accepts either `KAGI_TOKEN` or `token`. Set
+  # this only if your Secret uses a different key -- the operator then requires
+  # exactly that key and fails loudly, naming the Secret, if it is absent.
+  existingSecretKey: ""
+  # -- Raw PAT the chart wraps into a Secret named `<fullname>-token`. Dev
+  # convenience only — ends up in `helm get values`/release history in
+  # plaintext. Ignored when existingSecret is set.
+  token: ""
+  # -- Namespace of the token Secret (existingSecret or chart-created).
+  # Defaults to the release namespace.
+  namespace: ""
+
+crds:
+  # -- Install the KagiSecret and KagiCertificate CustomResourceDefinitions.
+  #
+  # CAVEAT: these CRDs are templated (templates/crds/*.yaml, gated by this
+  # flag) rather than placed in Helm's special crds/ directory. That is
+  # deliberate — it is the only way to make CRD install itself toggleable —
+  # but it means the usual "Helm never upgrades or deletes CRDs" guarantee
+  # (https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)
+  # does NOT apply here: `helm upgrade` WILL apply CRD schema changes shipped
+  # in a new chart version, and flipping this flag off on an upgrade WILL
+  # delete the CRDs (and every KagiSecret/KagiCertificate object using them)
+  # unless `crds.keep` (below) is set. Keep this flag consistent across
+  # upgrades in a shared cluster.
+  install: true
+  # -- Stamp `helm.sh/resource-policy: keep` on the CRDs so `helm uninstall`
+  # never deletes them (and therefore never deletes the custom resources
+  # instantiated from them). Strongly recommended to leave this true anywhere
+  # other than a fully disposable dev cluster.
+  keep: true
+
+# -----------------------------------------------------------------------------
+# injection — the pod-injection mutating admission webhook (secretless
+# workload-identity delivery). See internal/webhook/pod_mutator.go: it turns a
+# single label opt-in (kagi.pw/inject: "true") + annotations
+# (kagi.pw/app-id, kagi.pw/environment, ...) on an app pod into an injected
+# init container + projected ServiceAccount token + rewritten container
+# command, so the app process fetches its own secrets at startup via
+# kagi-init and no secret value is ever persisted as a K8s Secret.
+# -----------------------------------------------------------------------------
+injection:
+  # -- Enable the mutating admission webhook. When true this chart installs a
+  # webhook Service and a MutatingWebhookConfiguration (scoped by
+  # objectSelector to pods labeled kagi.pw/inject: "true" — unlabeled pods are
+  # never sent to it, so failurePolicy: Fail never puts unrelated cluster-wide
+  # pod admission at risk).
+  #
+  # TLS is handled automatically: the operator issues its own serving
+  # certificate, stores it in a Secret in its own namespace, publishes the CA
+  # onto the MutatingWebhookConfiguration's caBundle and rotates ahead of
+  # expiry. There is nothing to install (no cert-manager), nothing to
+  # configure and nothing to renew.
+  #
+  # SECURITY (this default path, not only existingCertSecret below): write
+  # access to that operator-owned Secret -- <fullname>-webhook-server-cert, i.e.
+  # kagi-operator-webhook-server-cert for the documented release name -- is
+  # equivalent to ADMISSION CONTROL over every injected pod, because its ca.crt
+  # is what the API server is told to trust. The operator re-verifies the Secret
+  # every 5 minutes and re-mints on mismatch, but that catches PARTIAL tampering
+  # and honest misconfiguration only: a coherent replacement of ca.crt, ca.key,
+  # tls.crt and tls.key together passes every check and publishes the replacer's
+  # root. Inherent to the pattern (Gatekeeper and Istio share it). RBAC on the
+  # Secret is the control.
+  #
+  # Repair is silent and non-disruptive, so an attacker rewriting the Secret
+  # after every repair causes NO outage -- only a WebhookCertificateTampered
+  # Warning Event per interval. A RECURRING one means active tampering, not a
+  # stuck flag. Alert on it.
+  enabled: true
+
+  # -- Advanced override: container image for the injected kagi-init init
+  # container. Leave empty (default) — the operator resolves it to ITS OWN
+  # running image at startup (cmd/image_resolver.go, via the Downward
+  # API POD_NAME/POD_NAMESPACE env vars this chart always sets when injection
+  # is enabled), because kagi-init ships bundled inside the operator image at
+  # /kagi-init (see the Dockerfile: `go build -o kagi-init cmd/kagi-init/main.go`
+  # is a second binary baked into the SAME image as the manager). There is no
+  # separate ghcr.io/korurlabs/kagi-init image published today. Only set
+  # this if a future release starts publishing kagi-init standalone — if it
+  # ever does, the release CI must build+push that second image too, and this
+  # chart's Chart.yaml artifacthub.io/images list must gain a matching entry.
+  kagiInitImage: ""
+
+  # -- Default audience for the projected ServiceAccount token minted into
+  # injected pods. Overridable per pod via the kagi.pw/audience annotation.
+  saTokenAudience: api.kagi.pw
+
+  # -- failurePolicy for the MutatingWebhookConfiguration. Safe to leave at
+  # Fail because the objectSelector already keeps unlabeled pods away from
+  # the webhook entirely.
+  failurePolicy: Fail
+
+  # -- Port the webhook server listens on inside the container (must match
+  # what controller-runtime's webhook.Server binds — 9443 is the operator's
+  # compiled-in default, see cmd/main.go).
+  containerPort: 9443
+
+  # -- OPT-IN ESCAPE HATCH: name a TLS Secret you create yourself, and the
+  # operator uses YOUR certificate instead of issuing its own.
+  #
+  # Leave empty (the default) unless you have to. The default path needs no
+  # certificate, no configuration and no renewal. This exists for one reason:
+  # organizations whose policy mandates that every in-cluster certificate be
+  # issued by their own internal PKI. That is a compliance requirement rather
+  # than a technical one, and without this they could not adopt injection at all.
+  #
+  # The Secret MUST live in the release namespace and carry all three of:
+  #   tls.crt  the serving certificate, whose SANs MUST cover
+  #            <fullname>-webhook.<namespace>.svc (kagi-operator-webhook.<ns>.svc
+  #            for the documented release name) — that is the
+  #            name the API server dials, and the only one verified. The
+  #            .svc.cluster.local form is accepted as an extra SAN but is NOT
+  #            sufficient on its own: a certificate carrying only that is
+  #            refused at startup rather than run broken-but-silent.
+  #   tls.key  its private key
+  #   ca.crt   the CA the API server must trust — this is what the operator
+  #            publishes as the MutatingWebhookConfiguration's caBundle
+  # The operator validates all three at startup and refuses to start, naming the
+  # Secret and the missing key, rather than serve behind a webhook whose caBundle
+  # it could never fill in.
+  #
+  # SECURITY: write access to this Secret is equivalent to ADMISSION CONTROL over
+  # every injected pod. Its ca.crt is published into the API server's trust
+  # store, so whoever can change that value decides which certificate the API
+  # server will accept for the webhook. Treat it like a signing key — do not
+  # hand a CI job blanket write access to it just because you own the rotation.
+  #
+  # The verification described below is NOT a defence against that: someone who
+  # can write this Secret can supply a self-consistent certificate, key and CA
+  # that verifies perfectly and publishes their own root. That is inherent to
+  # this pattern (Gatekeeper and Istio share it). The checks catch PARTIAL
+  # tampering and honest misconfiguration. RBAC on this Secret is the control.
+  #
+  # THE OPERATOR NEVER WRITES TO THIS SECRET. It is yours: you own issuing it and
+  # rotating it before it expires. The operator only reads it, and keeps the
+  # caBundle in sync with your ca.crt — so when your PKI rotates the CA
+  # underneath it, admission keeps working without your intervention (re-checked
+  # once a minute). Rotating the leaf under the same CA needs nothing at all.
+  #
+  # Every read is VERIFIED, not merely checked for presence: tls.crt and tls.key
+  # must be a genuine keypair, tls.crt must chain to ca.crt as a server
+  # certificate, and it must currently be valid for the Service DNS name above.
+  # ca.crt must also carry nothing beyond the chain that signs tls.crt, and no
+  # cross-signature (two DIFFERENT certificates sharing a subject and a public
+  # key; an exact duplicate is the same anchor twice and is accepted).
+  # Anything else is refused with a message naming the mismatch — at startup and
+  # on every subsequent sync, so a later PARTIAL swap is caught too.
+  #
+  # To be explicit, because it is the last thing said here: that is hygiene, not
+  # a boundary. It does not make a later swap safe. A coherent replacement of
+  # tls.crt, tls.key and ca.crt together passes every check above and publishes
+  # the replacer's root. RBAC on this Secret is the control.
+  #
+  # The Deployment mounts this Secret with optional: false, so the pod will not
+  # start until it exists. Create it first.
+  existingCertSecret: ""
+
+metrics:
+  # -- Expose the controller-runtime metrics endpoint.
+  enabled: true
+  # -- Serve metrics over HTTPS with built-in authn/authz (TokenReview /
+  # SubjectAccessReview against the requesting ServiceAccount) instead of
+  # plain HTTP. Recommended; only disable for local debugging.
+  secure: true
+  service:
+    # -- ClusterIP Service port metrics are exposed on (also the container
+    # port; controller-runtime binds the same port it's told to serve on).
+    port: 8443
+
+# -- Extra environment variables merged onto the manager container.
+extraEnv: []
+
+# -- Extra command-line args appended to the manager container's args list.
+extraArgs: []

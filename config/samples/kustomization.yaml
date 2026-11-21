@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- kagi_v1alpha1_kagisecret.yaml
+- kagi_v1alpha1_kagicertificate.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

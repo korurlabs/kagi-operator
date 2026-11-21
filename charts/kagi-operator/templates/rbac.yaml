@@ -1,0 +1,160 @@
+{{- if .Values.rbac.create }}
+---
+# Cluster-wide permissions the manager needs: read its own Pod (to default the
+# injected kagi-init image to its own running image, see
+# cmd/image_resolver.go), CRUD on plain Secrets (the KagiSecret/KagiCertificate
+# "Secret" delivery mode, and the operator's own webhook serving-cert Secret),
+# read/patch/watch Deployments (rollout mode), read/update the
+# MutatingWebhookConfiguration when injection.enabled (so the operator can
+# publish the caBundle of the TLS certificate it issues itself -- see
+# internal/certs), full lifecycle on
+# the kagi.pw CRDs + their status/finalizers subresources, and emitting Events.
+# Mirrors config/rbac/role.yaml.
+#
+# NOTE on injection.existingCertSecret: on that path the operator only READS the
+# certificate Secret (get/list/watch) and never writes it. The Secret verbs below
+# are deliberately NOT narrowed for it -- create/update/delete on Secrets are
+# required by the KagiSecret/KagiCertificate "Secret" delivery mode, which is the
+# operator's primary function and unrelated to webhook TLS, so there is nothing
+# to take away without breaking that. The read-only guarantee for a user-supplied
+# certificate is enforced in code (internal/certs issues no write against it) and
+# covered by a test, rather than by RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "watch"]
+  {{- if .Values.injection.enabled }}
+  # Both webhook rules below are gated on injection.enabled: with injection off
+  # this chart creates no MutatingWebhookConfiguration and the operator never
+  # touches one, so granting anything on that resource -- least of all the write
+  # verbs called out below -- would be permission held for nothing.
+  #
+  # Collection verbs cannot be restricted by name -- the rotator's informer
+  # needs list/watch over the collection.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    verbs: ["list", "watch"]
+  # WRITE access is scoped to the operator's OWN object, deliberately.
+  # Cluster-wide update here would be a cluster-takeover primitive: anyone able
+  # to run a pod in this namespace could mount the operator's ServiceAccount
+  # token and rewrite ANY webhook in the cluster (rules */*, empty
+  # objectSelector, clientConfig pointing at their own pod), intercepting
+  # everything admitted cluster-wide -- including through other vendors'
+  # webhooks. The operator only ever writes the one object it owns.
+  # patch is not granted: every write on both paths is a full Get+Update.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    resourceNames: ["{{ include "kagi-operator.fullname" . }}-mutating-webhook-configuration"]
+    verbs: ["get", "update"]
+  {{- end }}
+  - apiGroups: ["kagi.pw"]
+    resources: ["kagicertificates", "kagisecrets"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: ["kagi.pw"]
+    resources: ["kagicertificates/finalizers", "kagisecrets/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["kagi.pw"]
+    resources: ["kagicertificates/status", "kagisecrets/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kagi-operator.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagi-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Namespace-scoped permissions for controller-runtime leader election.
+# Mirrors config/rbac/leader_election_role.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kagi-operator.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagi-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if and .Values.metrics.enabled .Values.metrics.secure }}
+---
+# Lets the manager's metrics endpoint authenticate/authorize scrapers via
+# TokenReview/SubjectAccessReview instead of shipping its own auth. Mirrors
+# config/rbac/metrics_auth_role.yaml. Only needed when metrics are exposed
+# securely (metrics.secure).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}-metrics-auth
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}-metrics-auth
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kagi-operator.fullname" . }}-metrics-auth
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagi-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

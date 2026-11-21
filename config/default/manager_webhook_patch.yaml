@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+        - name: manager
+          # NOTE: `args` is deliberately NOT set here. A strategic-merge patch
+          # REPLACES a list of plain strings rather than merging it (Container.Args
+          # carries no patchMergeKey), so listing args here silently deleted every
+          # flag the base and the earlier patches had set -- --leader-elect,
+          # --health-probe-bind-address, --metrics-bind-address and the default-token
+          # flags all vanished from the rendered dist/install.yaml. The webhook flag
+          # is appended by manager_webhook_args_patch.yaml (JSON 6902) instead, the
+          # same way manager_metrics_patch.yaml already does it.
+          #
+          # The operator issues, stores, publishes and rotates its own webhook
+          # serving certificate (internal/certs) -- no cert-manager dependency,
+          # nothing for an installer to renew. These names travel as env rather
+          # than args so the kustomize `replacements` in
+          # config/default/kustomization.yaml can fill in the namePrefix'd
+          # values; a replacement cannot safely address a positional arg.
+          # POD_NAME/POD_NAMESPACE come from config/manager/manager.yaml.
+          env:
+            - name: KAGI_WEBHOOK_CERT_SECRET
+              value: webhook-server-cert
+            - name: KAGI_WEBHOOK_SERVICE_NAME
+              value: webhook-service
+            - name: KAGI_MUTATING_WEBHOOK_NAME
+              value: mutating-webhook-configuration
+          ports:
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      volumes:
+        # optional: true is load-bearing -- the operator CREATES this Secret at
+        # startup, so it does not exist yet when the pod is first scheduled.
+        - name: webhook-certs
+          secret:
+            secretName: webhook-server-cert
+            optional: true

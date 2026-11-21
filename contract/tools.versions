@@ -1,0 +1,21 @@
+# Pinned tool versions for the Kagi API contract toolchain.
+#
+# One KEY=value per line, no spaces around '=' and no quotes, so this file is both a valid
+# Makefile fragment (`include ../contract/tools.versions` in projects/kagi/cli/Makefile and
+# projects/kagi/operator/Makefile) and a valid shell file (`. projects/kagi/contract/tools.versions`
+# in .github/workflows/kagi-api-contract.yml).
+#
+# Exact versions only, never a range or "latest": the breaking-change verdict and the generated Go
+# output must not change between two runs of the same commit.
+
+# oasdiff, run by the `breaking` job: go run github.com/oasdiff/oasdiff@$OASDIFF_VERSION
+OASDIFF_VERSION=v1.32.1
+
+# actionlint, not run by any job: the version the manual workflow lint in the plan's section 6
+# verification uses: go run github.com/rhysd/actionlint/cmd/actionlint@$ACTIONLINT_VERSION
+ACTIONLINT_VERSION=v1.7.12
+
+# oapi-codegen, run by `make api-generate` in projects/kagi/cli and projects/kagi/operator:
+# go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$OAPI_CODEGEN_VERSION
+# Bumping it can change both committed zz_generated_api.go files; regenerate and commit them together.
+OAPI_CODEGEN_VERSION=v2.8.0

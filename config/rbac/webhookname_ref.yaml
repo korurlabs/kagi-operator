@@ -1,0 +1,19 @@
+# Teaches kustomize that a ClusterRole's rules[].resourceNames can hold a
+# reference to a MutatingWebhookConfiguration, so namePrefix/nameSuffix rewrite
+# it the same way they rewrite the object it names.
+#
+# Without this, webhook_scope_patch.yaml would have to hardcode the prefixed
+# name. Changing namePrefix in config/default would then render the webhook as
+# <newprefix>-mutating-webhook-configuration while the RBAC still granted
+# get/update on the old name -- the operator loses the ability to publish its own
+# caBundle. That fails loudly (Update 403s, AwaitWebhookCABundle times out and
+# exits, and the readiness gate keeps the pod out of Endpoints) but it is
+# entirely avoidable. This makes the kustomize render as self-consistent as the
+# Helm chart already is.
+nameReference:
+- kind: MutatingWebhookConfiguration
+  group: admissionregistration.k8s.io
+  version: v1
+  fieldSpecs:
+  - path: rules/resourceNames
+    kind: ClusterRole

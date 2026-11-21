@@ -1,0 +1,26 @@
+# Artifact Hub repository-level metadata for the kagi-operator OCI chart repo
+# (ghcr.io/korurlabs/charts/kagi-operator).
+#
+# This file is NOT consumed by Helm. Artifact Hub reads it to prove ownership
+# of the repository before listing it: once the repo is registered on Artifact
+# Hub (https://artifacthub.io/control-panel/repositories -- add a repository of
+# kind "OCI Helm chart" pointing at ghcr.io/korurlabs/charts/kagi-operator),
+# Artifact Hub gives you a `repositoryID` to paste into the TODO below.
+#
+# Pushing *this exact file* as an OCI artifact to that same ghcr.io path, tagged
+# artifacthub.io and with media type
+# application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml, is ALREADY
+# WIRED: see the "Publish Artifact Hub ownership metadata" step in
+# .github/workflows/kagi-operator-release.yml, which runs on every
+# kagi-operator/v* tag. Filling in the repositoryID below is the only manual
+# step left.
+#
+# Reference: https://artifacthub.io/docs/topics/repositories/#ownership-claim
+
+# TODO: fill in after registering the repository in the Artifact Hub control
+# panel -- https://artifacthub.io/docs/topics/repositories/#ownership-claim
+repositoryID: ""
+
+owners:
+  - name: Korur
+    email: support@kagi.pw

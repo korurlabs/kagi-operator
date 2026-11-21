@@ -1,0 +1,103 @@
+# Adds namespace to all resources.
+#
+# This is the namespace the docs tell users to install into and to create the
+# token Secret in (`kubectl create secret generic kagi-operator-token -n
+# kagi-operator-system`), and it is the namespace the Helm chart's own examples
+# use -- so the two install paths land in the same place. Do not shorten it back
+# to the kubebuilder scaffold's `operator-system`.
+namespace: kagi-operator-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+#
+# Changing this is safe: config/rbac/webhookname_ref.yaml registers
+# rules/resourceNames as a nameReference, so the scoped webhook RBAC follows the
+# prefix, and the `replacements` below copy the rendered Service /
+# MutatingWebhookConfiguration names into the manager's env. Nothing here
+# hardcodes a prefixed name.
+namePrefix: kagi-operator-
+
+# Labels to add to all resources and selectors.
+#labels:
+#- includeSelectors: true
+#  pairs:
+#    someName: someValue
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+# [WEBHOOK] The pod-injection mutating webhook. Only pods labeled
+# kagi.pw/inject: "true" are ever sent to it (objectSelector), so enabling it
+# never puts cluster-wide pod admission at risk.
+- ../webhook
+# NOTE: there is deliberately no certificate tooling wired in here. The operator
+# issues its own webhook serving certificate, stores it in a Secret it creates
+# in its own namespace, patches the MutatingWebhookConfiguration's caBundle and
+# rotates ahead of expiry (see internal/certs). Pulling in cert-manager here is
+# what made the released dist/install.yaml only partially apply on a bare
+# cluster -- leaving a failurePolicy: Fail webhook with an empty caBundle and no
+# operator running, which made every pod labeled kagi.pw/inject: "true"
+# un-creatable cluster-wide.
+# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+#- ../prometheus
+# [METRICS] Expose the controller manager metrics service.
+- metrics_service.yaml
+# [NETWORK POLICY] Protect the /metrics endpoint and Webhook Server with NetworkPolicy.
+# Only Pod(s) running a namespace labeled with 'metrics: enabled' will be able to gather the metrics.
+# Only CR(s) which requires webhooks and are applied on namespaces labeled with 'webhooks: enabled' will
+# be able to communicate with the Webhook Server.
+#- ../network-policy
+
+patches:
+# [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
+# More info: https://book.kubebuilder.io/reference/metrics
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+
+# [WEBHOOK] Mount the webhook serving cert, open the webhook port, and tell the
+# manager which Secret/Service/MutatingWebhookConfiguration to bootstrap its own
+# certificate against.
+- path: manager_webhook_patch.yaml
+  target:
+    kind: Deployment
+
+# [WEBHOOK] --webhook-cert-path, appended separately because args cannot live in a
+# strategic-merge patch without deleting every other flag. See the header of
+# manager_webhook_args_patch.yaml.
+- path: manager_webhook_args_patch.yaml
+  target:
+    kind: Deployment
+
+# The manager needs the *prefixed* names of the objects it keeps in sync, and
+# namePrefix rewrites object names but not flag values. These replacements copy
+# the rendered names into the env vars manager_webhook_patch.yaml declares, so
+# changing namePrefix above can never silently desync them.
+replacements:
+- source:
+    kind: Service
+    version: v1
+    name: webhook-service
+    fieldPath: .metadata.name
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - .spec.template.spec.containers.[name=manager].env.[name=KAGI_WEBHOOK_SERVICE_NAME].value
+- source:
+    kind: MutatingWebhookConfiguration
+    group: admissionregistration.k8s.io
+    version: v1
+    name: mutating-webhook-configuration
+    fieldPath: .metadata.name
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - .spec.template.spec.containers.[name=manager].env.[name=KAGI_MUTATING_WEBHOOK_NAME].value

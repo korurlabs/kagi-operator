@@ -1,0 +1,24 @@
+# objectSelector narrows admission to opted-in pods only. The LABEL
+# kagi.pw/inject: "true" is the single, authoritative opt-in: Kubernetes
+# selectors match LABELS (not annotations), so opted-in pods must carry this
+# label. Unlabeled pods never reach this webhook, so cluster-wide pod admission
+# is never at risk from a failurePolicy: Fail webhook. The handler re-checks the
+# same label as defense in depth against a mis-scoped selector (design Section
+# 5.2). Per-pod config (kagi.pw/app-id, kagi.pw/environment, etc.) travels in
+# ANNOTATIONS, but those do NOT gate opt-in -- the label alone does.
+#
+# This lives in a patch, not in manifests.yaml, because controller-gen does not
+# emit objectSelector from the +kubebuilder:webhook marker and therefore DELETES
+# it from manifests.yaml on every `make manifests` -- which `make build-installer`
+# runs first. A hand-maintained block there silently disappears from the released
+# dist/install.yaml, turning a narrowly scoped fail-closed webhook into one that
+# intercepts every pod CREATE in the cluster. A patch survives regeneration.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: mutating-webhook-configuration
+webhooks:
+  - name: mpod.kagi.pw
+    objectSelector:
+      matchLabels:
+        kagi.pw/inject: "true"

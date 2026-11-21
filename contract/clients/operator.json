@@ -1,0 +1,1321 @@
+{
+  "components": {
+    "responses": {
+      "Problem": {
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/KagiProblem"
+            }
+          }
+        },
+        "description": "Problem Details (RFC 9457). Besides the codes an operation names, any operation answers 400 KGI_API_001 when the request's X-Kagi-Client header names a client version below the minimum the server requires for that client (the header is described in the API description). Its errorValues carry client, version and minimumVersion, and the client tells its user to update Kagi."
+      }
+    },
+    "schemas": {
+      "CertificateEntry": {
+        "description": "Single certificate entry",
+        "properties": {
+          "name": {
+            "description": "Certificate name (or secret name override)",
+            "type": "string"
+          },
+          "tlsCrt": {
+            "description": "PEM-encoded certificate chain",
+            "type": "string"
+          },
+          "tlsKey": {
+            "description": "PEM-encoded private key; null when the certificate was stored without one",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "tlsCrt",
+          "tlsKey"
+        ],
+        "type": "object",
+        "x-kagi-domain": "certificate"
+      },
+      "FolderAppResponse": {
+        "properties": {
+          "effectiveRole": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KagiRole"
+              }
+            ],
+            "description": "Caller's effective role on the app. Filled by listFolderChildren and listFolderApps; null when the caller holds no qualifying role.",
+            "nullable": true
+          },
+          "id": {
+            "description": "Stable internal app id (the machine binding for secrets)",
+            "example": "1a2b3c4d-0000-0000-0000-000000000000",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable app name",
+            "example": "api",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Sibling-unique app slug within the folder",
+            "example": "api",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effectiveRole",
+          "id",
+          "name",
+          "slug"
+        ],
+        "type": "object",
+        "x-kagi-domain": "folder"
+      },
+      "FolderChildrenResponse": {
+        "properties": {
+          "apps": {
+            "description": "Apps directly under this folder (SECRETS only; empty for other libraries)",
+            "items": {
+              "$ref": "#/components/schemas/FolderAppResponse"
+            },
+            "type": "array"
+          },
+          "folders": {
+            "description": "Direct subfolders, ordered by name",
+            "items": {
+              "$ref": "#/components/schemas/FolderResponse"
+            },
+            "type": "array"
+          },
+          "path": {
+            "description": "Resolved parent path these children belong to",
+            "example": "/project-a",
+            "type": "string"
+          }
+        },
+        "required": [
+          "apps",
+          "folders",
+          "path"
+        ],
+        "type": "object",
+        "x-kagi-domain": "folder"
+      },
+      "FolderResponse": {
+        "properties": {
+          "createdAt": {
+            "description": "Creation timestamp",
+            "format": "date-time",
+            "type": "string"
+          },
+          "effectiveRole": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KagiRole"
+              }
+            ],
+            "description": "Caller's effective role on the folder. Filled by resolveFolder and by listFolderChildren for each child; null on every other response that carries a folder, and when the caller holds no qualifying role.",
+            "nullable": true
+          },
+          "id": {
+            "description": "Folder id",
+            "example": "9f3c2a1e-0000-0000-0000-000000000000",
+            "format": "uuid",
+            "type": "string"
+          },
+          "library": {
+            "$ref": "#/components/schemas/KagiLibrary"
+          },
+          "name": {
+            "description": "Human-readable folder name",
+            "example": "Backend",
+            "type": "string"
+          },
+          "ownerId": {
+            "description": "Owner user id for personal subtrees, or null for shared",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "parentId": {
+            "description": "Parent folder id, or null for a root folder",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "path": {
+            "description": "Cached display/lookup path",
+            "example": "/project-a/backend",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-safe slug derived from the name",
+            "example": "backend",
+            "type": "string"
+          },
+          "systemRoot": {
+            "description": "Whether this is an immutable system root",
+            "example": false,
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "description": "Last update timestamp",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "createdAt",
+          "effectiveRole",
+          "id",
+          "library",
+          "name",
+          "ownerId",
+          "parentId",
+          "path",
+          "slug",
+          "systemRoot",
+          "updatedAt"
+        ],
+        "type": "object",
+        "x-kagi-domain": "folder"
+      },
+      "KagiCertificateResolveResponse": {
+        "description": "Kagi certificate path-to-id resolve response for operator setup",
+        "properties": {
+          "certificateId": {
+            "description": "Stable certificate id to address TLS content by thereafter",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Certificate display name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificateId",
+          "name"
+        ],
+        "type": "object",
+        "x-kagi-domain": "certificate"
+      },
+      "KagiEnvironmentListResponse": {
+        "description": "Kagi environment list response",
+        "properties": {
+          "displayOrder": {
+            "description": "Display order",
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Environment id",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Environment name",
+            "type": "string"
+          },
+          "ownerId": {
+            "description": "Owning developer id for a personal environment; null for shared environments",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "personal": {
+            "description": "Whether this is a personal (developer-owned) environment",
+            "example": false,
+            "type": "boolean"
+          },
+          "secretCount": {
+            "description": "Number of secrets in this environment",
+            "format": "int64",
+            "type": "integer"
+          },
+          "slug": {
+            "description": "Environment slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayOrder",
+          "id",
+          "name",
+          "ownerId",
+          "personal",
+          "secretCount",
+          "slug"
+        ],
+        "type": "object",
+        "x-kagi-domain": "environment"
+      },
+      "KagiLibrary": {
+        "enum": [
+          "SECRETS",
+          "PASSWORDS",
+          "CERTIFICATES",
+          "ACCESS_TOKENS",
+          "WALLET"
+        ],
+        "type": "string",
+        "x-kagi-domain": "folder"
+      },
+      "KagiProblem": {
+        "description": "RFC 9457 Problem Details: the body of every Kagi error response.",
+        "properties": {
+          "code": {
+            "description": "The Kagi error code (error-codes.json)",
+            "example": "KGI_SEC_005",
+            "type": "string"
+          },
+          "detail": {
+            "description": "This occurrence's message",
+            "type": "string"
+          },
+          "errorValues": {
+            "additionalProperties": true,
+            "description": "Values the error carries; for a 400 request-shape failure, each invalid field mapped to its message",
+            "type": "object"
+          },
+          "instance": {
+            "description": "The request path",
+            "example": "/kagi/apps/{appId}/environments/{environmentSlug}/secrets/fetch",
+            "type": "string"
+          },
+          "status": {
+            "description": "The HTTP status code",
+            "example": 402,
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "description": "The catalogue message of the error code",
+            "example": "Organization billing is locked.",
+            "type": "string"
+          },
+          "type": {
+            "description": "urn:kagi:error:{code}, stable per error code",
+            "example": "urn:kagi:error:KGI_SEC_005",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ],
+        "type": "object",
+        "x-kagi-domain": "common"
+      },
+      "KagiRole": {
+        "enum": [
+          "VIEWER",
+          "CONTRIBUTOR",
+          "ADMIN",
+          "OWNER"
+        ],
+        "type": "string",
+        "x-kagi-domain": "identity"
+      },
+      "KagiSecretFetchResponse": {
+        "description": "Kagi secret fetch response",
+        "properties": {
+          "secrets": {
+            "additionalProperties": {
+              "description": "Key-value pairs of decrypted secrets",
+              "type": "string"
+            },
+            "description": "Key-value pairs of decrypted secrets",
+            "type": "object"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "type": "object",
+        "x-kagi-domain": "secret"
+      },
+      "KagiSecretVersionResponse": {
+        "description": "Kagi secret version response for operator conditional fetch",
+        "properties": {
+          "count": {
+            "description": "Number of active secrets in the app and environment",
+            "example": 3,
+            "format": "int64",
+            "type": "integer"
+          },
+          "lastModified": {
+            "description": "Timestamp of the most recently updated secret, null when there are none",
+            "example": "2026-07-05T18:00:00Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "version": {
+            "description": "Opaque equality token; changes on any add, update, or delete",
+            "example": "3:1720201200000:1720190000000",
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "lastModified",
+          "version"
+        ],
+        "type": "object",
+        "x-kagi-domain": "secret"
+      },
+      "KagiWorkloadTokenExchangeRequest": {
+        "description": "Kubernetes workload identity token exchange request",
+        "properties": {
+          "token": {
+            "description": "The projected Kubernetes ServiceAccount JWT to exchange",
+            "minLength": 1,
+            "type": "string",
+            "x-field-extra-annotation": "@jakarta.validation.constraints.NotBlank"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object",
+        "x-kagi-domain": "trust"
+      },
+      "KagiWorkloadTokenExchangeResponse": {
+        "description": "Kubernetes workload identity token exchange response",
+        "properties": {
+          "accessToken": {
+            "description": "The minted Kagi access token (bearer, shown only here)",
+            "type": "string"
+          },
+          "expiresAt": {
+            "description": "Absolute expiry of the minted access token",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accessToken",
+          "expiresAt"
+        ],
+        "type": "object",
+        "x-kagi-domain": "trust"
+      },
+      "MachineStatus": {
+        "description": "Lifecycle of an enrolled machine. PENDING_APPROVAL: enrolled into a pool that requires approval, no token yet. ACTIVE: may exchange. CLONE_SUSPECTED: an assertion reused a sequence number, so its key is suspected to be copied; tokens revoked. REVOKED: revoked by an admin. REMOVED: removed by the ephemeral cleanup or an admin",
+        "enum": [
+          "PENDING_APPROVAL",
+          "ACTIVE",
+          "CLONE_SUSPECTED",
+          "REVOKED",
+          "REMOVED"
+        ],
+        "type": "string",
+        "x-kagi-domain": "workload"
+      },
+      "TokenExchangeForm": {
+        "description": "RFC 8693 token exchange request, form encoded. Parameters other than these are ignored, except audience and scope, which are refused (KGI_VAL_217)",
+        "properties": {
+          "grant_type": {
+            "description": "Must be urn:ietf:params:oauth:grant-type:token-exchange",
+            "example": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string",
+            "x-field-extra-annotation": "@jakarta.validation.constraints.NotBlank"
+          },
+          "requested_token_ttl": {
+            "description": "Requested token lifetime in seconds; the granted lifetime is the smaller of this and the granting role's maximum. Null takes the role's maximum",
+            "format": "int32",
+            "maximum": 3600,
+            "minimum": 60,
+            "nullable": true,
+            "type": "integer"
+          },
+          "resource": {
+            "description": "One URI per requested (app, environment): https://<api-host>/kagi/apps/<appId>/environments/<environmentSlug>. The app id is the app's stable id and fixes the organization; every app must belong to the same organization. Repeated values are collapsed",
+            "items": {
+              "description": "Resource URI",
+              "example": "https://api.kagi.pw/kagi/apps/3f2a9c4e-8b1d-4e7a-9f6c-2d5b8a1e0c47/environments/production",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array",
+            "x-field-extra-annotation": "@jakarta.validation.constraints.NotEmpty"
+          },
+          "subject_token": {
+            "description": "The workload's platform token (a JWT whose aud is the API host, api.kagi.pw in production) or a machine assertion",
+            "maxLength": 8192,
+            "minLength": 1,
+            "type": "string",
+            "x-field-extra-annotation": "@jakarta.validation.constraints.NotBlank",
+            "x-kagi-sensitive": true
+          },
+          "subject_token_type": {
+            "description": "urn:ietf:params:oauth:token-type:jwt or urn:ietf:params:oauth:token-type:id_token for a platform token, urn:kagi:params:oauth:token-type:machine-assertion for a machine assertion",
+            "example": "urn:ietf:params:oauth:token-type:jwt",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string",
+            "x-field-extra-annotation": "@jakarta.validation.constraints.NotBlank"
+          }
+        },
+        "required": [
+          "grant_type",
+          "resource",
+          "subject_token",
+          "subject_token_type"
+        ],
+        "type": "object",
+        "x-kagi-domain": "trust"
+      },
+      "TokenExchangeGrantedBy": {
+        "description": "The workload role that granted the token",
+        "properties": {
+          "role_id": {
+            "description": "Workload role id",
+            "format": "uuid",
+            "type": "string"
+          },
+          "role_name": {
+            "description": "Workload role name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id",
+          "role_name"
+        ],
+        "type": "object",
+        "x-kagi-domain": "trust"
+      },
+      "TokenExchangeIssuedTokenType": {
+        "description": "RFC 8693 issued_token_type of a Kagi token exchange",
+        "enum": [
+          "urn:ietf:params:oauth:token-type:access_token"
+        ],
+        "type": "string",
+        "x-kagi-domain": "trust"
+      },
+      "TokenExchangeMachine": {
+        "description": "Machine state, returned when the subject token was a machine assertion",
+        "properties": {
+          "key_rotation_due_at": {
+            "description": "When the machine should rotate its key; null when rotation is off",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "retiring_key_fingerprint": {
+            "description": "Fingerprint of a key still accepted during a rotation; null when none",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MachineStatus"
+          }
+        },
+        "required": [
+          "key_rotation_due_at",
+          "retiring_key_fingerprint",
+          "status"
+        ],
+        "type": "object",
+        "x-kagi-domain": "trust"
+      },
+      "TokenExchangeResponse": {
+        "description": "RFC 8693 token exchange response. It carries no secret value; read secrets with the minted token",
+        "properties": {
+          "access_token": {
+            "description": "The minted Kagi WORKLOAD token (bearer, shown only here). It reads only the requested (app, environment) pairs",
+            "type": "string",
+            "x-kagi-sensitive": true
+          },
+          "expires_in": {
+            "description": "Lifetime of the token in seconds",
+            "format": "int32",
+            "type": "integer"
+          },
+          "granted_by": {
+            "$ref": "#/components/schemas/TokenExchangeGrantedBy"
+          },
+          "issued_token_type": {
+            "$ref": "#/components/schemas/TokenExchangeIssuedTokenType"
+          },
+          "machine": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TokenExchangeMachine"
+              }
+            ],
+            "description": "Machine state for a machine assertion; null for a platform token",
+            "nullable": true
+          },
+          "scope": {
+            "description": "Space-separated secrets:<appId>/<environmentSlug> entries, exactly the requested pairs",
+            "example": "secrets:3f2a9c4e-8b1d-4e7a-9f6c-2d5b8a1e0c47/production",
+            "type": "string"
+          },
+          "token_type": {
+            "$ref": "#/components/schemas/TokenExchangeTokenType"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in",
+          "granted_by",
+          "issued_token_type",
+          "machine",
+          "scope",
+          "token_type"
+        ],
+        "type": "object",
+        "x-kagi-domain": "trust"
+      },
+      "TokenExchangeTokenType": {
+        "description": "RFC 6749 token_type of a Kagi token exchange",
+        "enum": [
+          "Bearer"
+        ],
+        "type": "string",
+        "x-kagi-domain": "trust"
+      }
+    }
+  },
+  "info": {
+    "description": "Kagi Secrets Management Service. Client version header: a released Kagi client sends X-Kagi-Client: <client>/<version> on every request. client is one of macos (Kagi for Mac with its AutoFill provider and Safari extension), mobile (the iOS and Android app with its AutoFill target), extension (the Chrome and Firefox extension), cli, sdk and operator. version is one or more dot-separated non-negative integers, optionally followed by -<prerelease> (letters, digits, dots and hyphens) and then by +<build>, where build is a non-negative integer; for example macos/0.1.3+34, mobile/0.1.3+17, extension/0.1.3 or cli/0.30.0-rc.1. The server orders two versions by their numeric components from the left (a missing component counts as 0), then a prerelease below its release (two prereleases compare as text), then the build number (a missing build counts as 0). When the server has a minimum version for the named client and the version is below it, any operation refuses the request with 400 KGI_API_001 (see the shared Problem response). A request without the header, naming a client that has no minimum or is not listed here, or carrying a value that does not follow this form is processed as before. The portal and the admin console send no header.",
+    "title": "Kagi API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.1",
+  "paths": {
+    "/kagi/apps/{appId}/environments": {
+      "get": {
+        "operationId": "listEnvironments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "appId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KagiEnvironmentListResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Environments retrieved successfully"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Unauthorized -- authentication required (missing or invalid JWT/PAT)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Forbidden -- caller is a member without a license in a METERED, TRIAL_ENDED or LAPSED organization (KGI_SEC_053, with organizationId, tier and revokedAt)"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "App not found"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "List environments for a kagi app",
+        "tags": [
+          "app"
+        ],
+        "x-kagi-clients": [
+          "portal",
+          "mobile",
+          "macos",
+          "cli",
+          "operator"
+        ],
+        "x-spring-provide-args": [
+          "@com.sensey.kagi.oba.security.annotation.GetUser com.sensey.kagi.domain.identity.entity.KagiUser user"
+        ]
+      }
+    },
+    "/kagi/apps/{appId}/environments/{environmentSlug}/secrets/fetch": {
+      "get": {
+        "operationId": "fetchAppSecrets",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "appId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "environmentSlug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiSecretFetchResponse"
+                }
+              }
+            },
+            "description": "Secrets fetched successfully"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Unauthorized -- authentication required (missing or invalid JWT/PAT)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Forbidden -- caller is a member without a license in a METERED, TRIAL_ENDED or LAPSED organization (KGI_SEC_053, with organizationId, tier and revokedAt)"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "App or environment not found"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Fetch all kagi secrets by app id (plaintext)",
+        "tags": [
+          "secret"
+        ],
+        "x-kagi-clients": [
+          "portal",
+          "mobile",
+          "cli",
+          "operator"
+        ],
+        "x-spring-provide-args": [
+          "@com.sensey.kagi.oba.security.annotation.GetUser com.sensey.kagi.domain.identity.entity.KagiUser user"
+        ]
+      }
+    },
+    "/kagi/apps/{appId}/environments/{environmentSlug}/secrets/version": {
+      "get": {
+        "operationId": "getSecretVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "appId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "environmentSlug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiSecretVersionResponse"
+                }
+              }
+            },
+            "description": "Secret version retrieved successfully"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Unauthorized -- authentication required (missing or invalid JWT/PAT)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Forbidden -- caller is a member without a license in a METERED, TRIAL_ENDED or LAPSED organization (KGI_SEC_053, with organizationId, tier and revokedAt)"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "App or environment not found"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Get kagi secret version by app id (no decrypt)",
+        "tags": [
+          "secret"
+        ],
+        "x-kagi-clients": [
+          "operator"
+        ],
+        "x-spring-provide-args": [
+          "@com.sensey.kagi.oba.security.annotation.GetUser com.sensey.kagi.domain.identity.entity.KagiUser user"
+        ]
+      }
+    },
+    "/kagi/auth/kubernetes/exchange": {
+      "post": {
+        "deprecated": true,
+        "description": "Deprecated: use exchangeToken (POST /kagi/auth/token) with one resource per app environment. This alias serves released operator and kagi-init builds: it resolves the organization from the cluster issuer URL and grants the full scopes of the one workload role whose Kubernetes rule matches the service account (409 KGI_STA_047 when several do).",
+        "operationId": "exchangeWorkloadToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KagiWorkloadTokenExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiWorkloadTokenExchangeResponse"
+                }
+              }
+            },
+            "description": "Token exchanged successfully"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Missing or blank service account token"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Token exchange denied (untrusted issuer, invalid signature, wrong audience, expired, or no matching binding)"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "More than one enabled workload role has a Kubernetes rule on this cluster that matches the service account (KGI_STA_047, with the role ids). Overlapping rules need an admin's attention"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Exchange a kubernetes service account token for a scoped Kagi access token",
+        "tags": [
+          "trust"
+        ],
+        "x-kagi-clients": [
+          "operator"
+        ]
+      }
+    },
+    "/kagi/auth/token": {
+      "post": {
+        "description": "RFC 8693 token exchange. The workload sends its platform token (Kubernetes service account, CI job, cloud identity) or a machine assertion and one resource per (app, environment) it is about to read. The organization is the apps' organization. Kagi verifies the token against that organization's identity sources, finds the enabled workload roles whose trust rules match the identity, and grants through the one role that covers every requested pair; the token's scope is exactly the requested pairs. The workload never names a role. The subject token's audience is the API host (api.kagi.pw in production) unless the source overrides it. Errors are RFC 9457 Problem Details, not RFC 6749 error objects.",
+        "operationId": "exchangeToken",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "encoding": {
+                "resource": {
+                  "explode": true,
+                  "style": "form"
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenExchangeResponse"
+                }
+              }
+            },
+            "description": "Token issued. Read the secrets with GET /kagi/apps/{appId}/environments/{environmentSlug}/secrets/fetch and the minted token"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Malformed exchange (KGI_VAL_217): an unsupported grant_type or subject_token_type; no resource, more than 32, or one that is not an absolute https URI on the API host with the path /kagi/apps/<uuid>/environments/<slug>; an audience or scope parameter; requested_token_ttl outside 60 to 3600"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Exchange denied (KGI_AUT_003), deliberately opaque: an unknown app id or apps of two organizations; no enabled source of the organization accepts the token; an invalid signature, a wrong or multi-valued audience, a missing sub or a token too old; no enabled role trusts the identity; the caller's address is outside every trusting role's CIDR list; or no single usable role covers every requested pair. Once the token's signature verified against one of the organization's sources, the refusal is recorded for its admins (listWorkloadExchangeDenials)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Identity verified and a role covers the request, but the organization's plan does not include workload identity or the secrets library (KGI_SEC_062), or its subscription is locked (KGI_SEC_005)"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Too many exchanges from this address or for this organization (KGI_SEC_063); retry later"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Exchange a workload's platform token for a Kagi token that reads the requested app environments",
+        "tags": [
+          "trust"
+        ],
+        "x-kagi-clients": [
+          "external",
+          "cli",
+          "operator"
+        ],
+        "x-spring-provide-args": [
+          "jakarta.servlet.http.HttpServletRequest httpRequest"
+        ]
+      }
+    },
+    "/kagi/certificates/by-id/{certificateId}/tls": {
+      "get": {
+        "description": "Fetches decrypted TLS content for the certificate addressed by its stable id. The id is durable across renames and folder moves, so this is the machine fetch contract operators bind to after resolving a node path to an id once.",
+        "operationId": "fetchCertificateTls",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certificateId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateEntry"
+                }
+              }
+            },
+            "description": "Certificate TLS content fetched"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Unauthorized -- authentication required (missing or invalid JWT/PAT)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Forbidden -- caller lacks VIEWER+ on the certificate; or the caller is a member without a license in a METERED, TRIAL_ENDED or LAPSED organization (KGI_SEC_053, with organizationId, tier and revokedAt)"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Certificate not found"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Fetch kagi certificate TLS content by id",
+        "tags": [
+          "certificate"
+        ],
+        "x-kagi-clients": [
+          "operator"
+        ],
+        "x-spring-provide-args": [
+          "@com.sensey.kagi.oba.security.annotation.GetUser com.sensey.kagi.domain.identity.entity.KagiUser user"
+        ]
+      }
+    },
+    "/kagi/folders/certificates/resolve/{path}": {
+      "get": {
+        "description": "Resolves the certificate addressed by path (folder segments then the certificate slug) to its stable id and display name. The id is the durable machine binding used to fetch TLS content by id thereafter.",
+        "operationId": "resolveCertificate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiCertificateResolveResponse"
+                }
+              }
+            },
+            "description": "Certificate resolved"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Unauthorized -- authentication required (missing or invalid JWT/PAT)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Forbidden -- caller lacks VIEWER+ on the certificate; or the caller is a member without a license in a METERED, TRIAL_ENDED or LAPSED organization (KGI_SEC_053, with organizationId, tier and revokedAt)"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Certificate not found for the given node path"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Resolve a kagi certificate node path to its stable id",
+        "tags": [
+          "certificate"
+        ],
+        "x-kagi-clients": [
+          "cli",
+          "operator"
+        ],
+        "x-kagi-path-wildcard": "path",
+        "x-spring-provide-args": [
+          "@com.sensey.kagi.oba.security.annotation.GetUser com.sensey.kagi.domain.identity.entity.KagiUser user"
+        ]
+      }
+    },
+    "/kagi/folders/{library}/children/{path}": {
+      "get": {
+        "description": "Lists subfolders, and for the SECRETS library the apps under the folder with their stable ids. This listing is the path-to-app-id resolution step for machine setup.",
+        "operationId": "listFolderChildren",
+        "parameters": [
+          {
+            "description": "Library slug",
+            "example": "secrets",
+            "in": "path",
+            "name": "library",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderChildrenResponse"
+                }
+              }
+            },
+            "description": "Children retrieved"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Unauthorized -- authentication required (missing or invalid JWT/PAT)"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Forbidden -- caller is a member without a license in a METERED, TRIAL_ENDED or LAPSED organization (KGI_SEC_053, with organizationId, tier and revokedAt)"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KagiProblem"
+                }
+              }
+            },
+            "description": "Parent folder not found"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "List kagi folder children",
+        "tags": [
+          "folder"
+        ],
+        "x-kagi-clients": [
+          "portal",
+          "mobile",
+          "macos",
+          "cli",
+          "operator"
+        ],
+        "x-kagi-path-wildcard": "path"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.kagi.pw"
+    }
+  ],
+  "tags": [
+    {
+      "name": "access"
+    },
+    {
+      "name": "admin"
+    },
+    {
+      "name": "app"
+    },
+    {
+      "name": "billing"
+    },
+    {
+      "name": "certificate"
+    },
+    {
+      "name": "dashboard"
+    },
+    {
+      "name": "devicekey"
+    },
+    {
+      "name": "environment"
+    },
+    {
+      "name": "favicon"
+    },
+    {
+      "name": "folder"
+    },
+    {
+      "name": "handwritten"
+    },
+    {
+      "name": "identity"
+    },
+    {
+      "name": "login"
+    },
+    {
+      "name": "notification"
+    },
+    {
+      "name": "onboarding"
+    },
+    {
+      "name": "organization"
+    },
+    {
+      "name": "passkey"
+    },
+    {
+      "name": "passwordhealth"
+    },
+    {
+      "name": "passwordimport"
+    },
+    {
+      "name": "reachability"
+    },
+    {
+      "name": "remotefill"
+    },
+    {
+      "name": "search"
+    },
+    {
+      "name": "secret"
+    },
+    {
+      "name": "share"
+    },
+    {
+      "name": "sync"
+    },
+    {
+      "name": "trash"
+    },
+    {
+      "name": "trust"
+    },
+    {
+      "name": "wallet"
+    },
+    {
+      "name": "workload"
+    }
+  ]
+}

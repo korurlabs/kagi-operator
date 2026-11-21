@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: operator
+  replicas: 1
+  # Surge-first is safe HERE, unlike the Helm chart, because this scaffold
+  # passes --leader-elect (see the manager args below). The incoming pod blocks
+  # on acquiring the Lease, so the brief two-pod overlap never means two active
+  # reconcilers. The webhook server is not leader-gated in controller-runtime,
+  # so it serves from the new pod as soon as it is ready.
+  #
+  # If --leader-elect is ever dropped from the args below, this MUST become
+  # `type: Recreate` in the same change — see the reasoning in
+  # charts/kagi-operator/templates/deployment.yaml.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: operator
+    spec:
+      # TODO(user): Uncomment the following code to configure the nodeAffinity expression
+      # according to the platforms which are supported by your solution.
+      # It is considered best practice to support multiple architectures. You can
+      # build your manager image using the makefile target docker-buildx.
+      # affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #           - key: kubernetes.io/arch
+      #             operator: In
+      #             values:
+      #               - amd64
+      #               - arm64
+      #               - ppc64le
+      #               - s390x
+      #           - key: kubernetes.io/os
+      #             operator: In
+      #             values:
+      #               - linux
+      securityContext:
+        # Projects are configured by default to adhere to the "restricted" Pod Security Standards.
+        # This ensures that deployments meet the highest security requirements for Kubernetes.
+        # For more details, see: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - command:
+        - /manager
+        args:
+          - --leader-elect
+          - --health-probe-bind-address=:8081
+          # Cluster-wide default Kagi PAT, matching the documented prerequisite:
+          #   kubectl create secret generic kagi-operator-token \
+          #     -n kagi-operator-system --from-literal=KAGI_TOKEN=vv_...
+          # (the operator accepts either the key KAGI_TOKEN or token).
+          # Without these two flags every KagiSecret/KagiCertificate would have
+          # to carry its own spec.tokenSecret, which the docs do not say. A
+          # spec.tokenSecret still wins per object, so this is purely a fallback;
+          # the Secret is only read when an object omits one.
+          #
+          # The namespace is NOT written out literally: Kubernetes expands
+          # $(VAR) in args from the container's own env, and POD_NAMESPACE is
+          # declared below via the Downward API. That keeps this flag correct no
+          # matter what `namespace:` config/default/kustomization.yaml sets --
+          # an empty --default-token-namespace would mean "look in each custom
+          # resource's own namespace", which is not the documented behaviour.
+          - --default-token-secret=kagi-operator-token
+          - --default-token-namespace=$(POD_NAMESPACE)
+          # To authenticate without a stored PAT, add --kagi-auth=exchange: the
+          # operator then trades the projected token mounted below at
+          # /kagi/auth/token for a token per (app, environment) pair, and the
+          # two token-secret flags above are not read. A workload role in the
+          # portal must trust this namespace and the controller-manager service
+          # account and cover the pairs the KagiSecrets read.
+        image: controller:latest
+        name: manager
+        ports: []
+        # POD_NAME/POD_NAMESPACE let the operator read its own Pod at startup to
+        # default the injected kagi-init image to its own running image.
+        # POD_NAMESPACE is additionally expanded into the
+        # --default-token-namespace arg above, so do not remove it.
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        # TODO(user): Configure the resources accordingly based on the project requirements.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        # The projected ServiceAccount token --kagi-auth=exchange reads. It is
+        # mounted on every install so switching the flag needs no other change;
+        # under token-secret nothing reads it.
+        volumeMounts:
+          - name: kagi-token
+            mountPath: /var/run/secrets/kagi
+            readOnly: true
+      volumes:
+        - name: kagi-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  # The API host: the audience the exchange demands.
+                  audience: api.kagi.pw
+                  expirationSeconds: 3600
+                  path: token
+      serviceAccountName: controller-manager
+      terminationGracePeriodSeconds: 10

@@ -1,0 +1,246 @@
+{{- if .Values.crds.install }}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kagicertificates.kagi.pw
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+  {{- if .Values.crds.keep }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  group: kagi.pw
+  names:
+    kind: KagiCertificate
+    listKind: KagiCertificateList
+    plural: kagicertificates
+    singular: kagicertificate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.certificateID
+      name: Certificate ID
+      type: string
+    - jsonPath: .spec.folderPath
+      name: Folder Path
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.lastSyncTime
+      name: Last Sync
+      type: date
+    - jsonPath: .status.notAfter
+      name: Expires
+      type: date
+    - jsonPath: .status.expiresInDays
+      name: Days Left
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: KagiCertificate is the Schema for the kagicertificates API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of KagiCertificate
+            properties:
+              certificateID:
+                description: |-
+                  CertificateID is the Kagi certificate's stable internal ID -- the durable
+                  machine binding. Resolve it once from a certificate node path at setup (e.g.
+                  via the Kagi CLI/SDK ResolveCertificate) and pin it here. It is stable across
+                  certificate renames and folder moves, so reconciliation never depends on the
+                  certificate's current slug or location. This is the primary, preferred field.
+                  When set, FolderPath is ignored.
+                type: string
+              folderPath:
+                description: |-
+                  FolderPath is the human-readable certificate node path (e.g.
+                  "/team-tls/acme-tls"): the final segment is the certificate slug and the
+                  preceding segments identify the folder it lives in. When CertificateID is
+                  empty, the controller resolves this path to a certificate ID once per
+                  reconcile via the Kagi SDK. Prefer CertificateID: a folder move or rename
+                  invalidates a FolderPath binding.
+                type: string
+              managedSecret:
+                description: ManagedSecret defines the target K8s Secret to create/update.
+                properties:
+                  name:
+                    description: Name is the name of the managed K8s Secret.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the managed K8s Secret.
+                      Defaults to the CR's namespace if omitted.
+                    type: string
+                  type:
+                    default: Opaque
+                    description: |-
+                      Type is the type of the managed K8s Secret. Only the types the operator
+                      writes are accepted: Opaque for a KagiSecret, and kubernetes.io/tls for a
+                      KagiCertificate, which also maps Opaque to kubernetes.io/tls. Other types
+                      are refused because some mean more to the cluster than the data they
+                      hold; the token controller, for one, fills a
+                      kubernetes.io/service-account-token Secret with a ServiceAccount token.
+                    enum:
+                    - Opaque
+                    - kubernetes.io/tls
+                    type: string
+                required:
+                - name
+                type: object
+              organization:
+                description: |-
+                  Organization is the optional Kagi organization UUID. When set, it is sent as a
+                  cross-check (X-Organization-ID) and MUST match the PAT's bound organization, or the
+                  Kagi API rejects the request (403). Leave empty to use the token's bound organization.
+
+                  The value is validated as a canonical UUID at admission because a non-UUID can never
+                  be a Kagi organization id: the API parses the header with UUID.fromString, so a typo
+                  either makes every reconcile fail with a permanent 403 (tenancy enforcement STRICT) or
+                  is discarded without comment (OFF/SHADOW), silently disabling the cross-check the user
+                  asked for. The empty string stays accepted so an unset chart value templated as
+                  `organization: ""` keeps meaning "use the token's bound organization".
+                pattern: ^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+                type: string
+              tokenSecret:
+                description: |-
+                  TokenSecret references the K8s Secret holding the Kagi PAT. It overrides
+                  the operator's default authentication for this object, and it is required
+                  when the operator runs with --kagi-auth exchange, which cannot read a
+                  certificate.
+                properties:
+                  name:
+                    description: Name is the name of the K8s Secret.
+                    type: string
+                  namespace:
+                    description: Namespace is the namespace of the K8s Secret.
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - managedSecret
+            type: object
+            x-kubernetes-validations:
+            - message: one of certificateID or folderPath is required
+              rule: has(self.certificateID) || has(self.folderPath)
+          status:
+            description: status defines the observed state of KagiCertificate
+            properties:
+              conditions:
+                description: conditions represent the current state of the KagiCertificate
+                  resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              expiresInDays:
+                description: ExpiresInDays is the number of days until the certificate
+                  expires.
+                type: integer
+              lastErrorMessage:
+                description: LastErrorMessage is the error message from the last failed
+                  sync.
+                type: string
+              lastSyncTime:
+                description: LastSyncTime is the timestamp of the last successful
+                  sync.
+                format: date-time
+                type: string
+              notAfter:
+                description: NotAfter is the expiration time of the synced certificate.
+                format: date-time
+                type: string
+              resolvedCertificateID:
+                description: |-
+                  ResolvedCertificateID is the stable certificate ID the last sync addressed
+                  TLS content with. When spec.certificateID is set it equals that; when only
+                  spec.folderPath is set it records the ID resolved from the path. Purely
+                  observational.
+                type: string
+              thumbprint:
+                description: Thumbprint is the SHA-256 thumbprint of the synced certificate.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}

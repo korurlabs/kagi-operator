@@ -1,0 +1,254 @@
+{{- $tokenSecretName := include "kagi-operator.tokenSecretName" . -}}
+{{- if not (has .Values.auth.mode (list "token-secret" "exchange")) }}
+{{- fail (printf "auth.mode %q is not supported; use token-secret or exchange" .Values.auth.mode) }}
+{{- end }}
+{{- $exchange := eq .Values.auth.mode "exchange" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagi-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kagi-operator.labels" . | nindent 4 }}
+    control-plane: controller-manager
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # The rollout strategy FOLLOWS leaderElection, deliberately — this is the one
+  # workload in the fleet where surge-first is not automatically correct.
+  #
+  # A surge-first rollout (maxUnavailable 0 / maxSurge 1) exists precisely to
+  # run the new pod alongside the old one. For a controller-runtime manager
+  # with leader election OFF, that overlap is exactly the race values.yaml
+  # warns about above replicaCount: two managers reconciling the same
+  # KagiSecret/KagiCertificate objects at once, both minting and writing. So
+  # while leaderElection.enabled is false we use Recreate: the old manager is
+  # stopped before the new one starts, and there is never a second reconciler.
+  #
+  # With leader election ON the overlap is safe — the incoming pod blocks on
+  # acquiring the Lease and only the holder reconciles — so surge-first
+  # applies. Note the webhook server is NOT gated by leader election in
+  # controller-runtime; it serves from every replica as soon as it is ready,
+  # which is what makes the surge-first case genuinely zero-gap for admission.
+  #
+  # Cost of the Recreate branch: a short window with no webhook endpoint. That
+  # is bounded — the MutatingWebhookConfiguration is scoped by objectSelector
+  # to pods labeled kagi.pw/inject, so only those admissions are affected, and
+  # a rejected pod creation is retried by its owning controller rather than
+  # breaking anything already running.
+  strategy:
+    {{- if .Values.leaderElection.enabled }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+    {{- else }}
+    type: Recreate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kagi-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kagi-operator.selectorLabels" . | nindent 8 }}
+        control-plane: controller-manager
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kagi-operator.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: manager
+          image: {{ include "kagi-operator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /manager
+          args:
+            - --health-probe-bind-address=:8081
+            - --leader-elect={{ .Values.leaderElection.enabled }}
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address={{ if .Values.metrics.secure }}:{{ .Values.metrics.service.port }}{{ else }}:8080{{ end }}
+            {{- else }}
+            - --metrics-bind-address=0
+            {{- end }}
+            - --metrics-secure={{ .Values.metrics.secure }}
+            - --kagi-api-url={{ .Values.kagiApiUrl }}
+            {{- if $exchange }}
+            # Rendered only for exchange, so the default install still runs an
+            # operator image that predates the flag.
+            - --kagi-auth=exchange
+            {{- end }}
+            {{- if $tokenSecretName }}
+            - --default-token-secret={{ $tokenSecretName }}
+            - --default-token-namespace={{ include "kagi-operator.tokenSecretNamespace" . }}
+            {{- if .Values.auth.existingSecretKey }}
+            - --default-token-key={{ .Values.auth.existingSecretKey }}
+            {{- end }}
+            {{- end }}
+            - --max-concurrent-reconciles={{ .Values.maxConcurrentReconciles }}
+            - --enable-pod-injection={{ .Values.injection.enabled }}
+            {{- if .Values.injection.enabled }}
+            {{- if .Values.injection.kagiInitImage }}
+            - --kagi-init-image={{ .Values.injection.kagiInitImage }}
+            {{- end }}
+            - --sa-token-audience={{ .Values.injection.saTokenAudience }}
+            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            # The operator issues, stores, publishes and rotates its own
+            # webhook serving certificate -- no cert-manager, no chart-baked
+            # keypair. These three names tell it which objects to keep in
+            # sync (see internal/certs).
+            - --webhook-cert-secret={{ include "kagi-operator.webhookCertSecretName" . }}
+            - --webhook-service-name={{ include "kagi-operator.webhookServiceName" . }}
+            - --mutating-webhook-name={{ include "kagi-operator.fullname" . }}-mutating-webhook-configuration
+            {{- if .Values.injection.existingCertSecret }}
+            # Opt-in (injection.existingCertSecret): the Secret above is the
+            # user's, issued by their own PKI. The operator generates and
+            # rotates nothing and never writes to it -- it only publishes their
+            # ca.crt as the caBundle and re-syncs when their PKI rotates the CA.
+            # Emitted ONLY on this path, so the flag's presence in the pod spec
+            # is itself the signal that someone opted out of operator-managed
+            # certificates; its absence means the default.
+            - --webhook-cert-managed=false
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # POD_NAME/POD_NAMESPACE let the operator read its own Pod at startup
+          # to default the injected kagi-init image to its own running image
+          # (cmd/image_resolver.go) whenever injection.kagiInitImage is unset.
+          # POD_NAMESPACE is additionally REQUIRED when injection is enabled:
+          # it is the namespace the operator bootstraps its webhook cert
+          # Secret into, and half of the certificate's DNS SANs.
+          #
+          # extraEnv is rendered FIRST on purpose. Duplicate env names are legal
+          # and the LAST one wins, so appending it after these would let a
+          # user-supplied POD_NAMESPACE override the Downward API -- sending the
+          # operator to the wrong namespace for its cert Secret and minting SANs
+          # that can never match the Service. This ordering makes the Downward
+          # API authoritative while leaving extraEnv useful for everything else.
+          env:
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.service.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.injection.enabled }}
+            - name: webhook-server
+              containerPort: {{ .Values.injection.containerPort }}
+              protocol: TCP
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if or .Values.injection.enabled $exchange }}
+          volumeMounts:
+            {{- if .Values.injection.enabled }}
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+            {{- end }}
+            {{- if $exchange }}
+            # The projected ServiceAccount token --kagi-auth=exchange reads
+            # (kagiclient.DefaultServiceAccountTokenPath).
+            - name: kagi-token
+              mountPath: /var/run/secrets/kagi
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.injection.enabled $exchange }}
+      volumes:
+        {{- if $exchange }}
+        - name: kagi-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ .Values.auth.exchange.audience }}
+                  expirationSeconds: {{ .Values.auth.exchange.expirationSeconds }}
+                  path: token
+        {{- end }}
+        {{- if .Values.injection.enabled }}
+        # optional tracks who owns the Secret.
+        #
+        # Default (operator-managed): optional: true is load-bearing. The
+        # operator CREATES this Secret at startup (nothing else does, now that
+        # cert-manager and the chart-side keypair are gone), so on a fresh
+        # install it does not exist yet when the pod is scheduled -- a
+        # non-optional mount would deadlock the pod against a Secret only that
+        # same pod can create.
+        #
+        # injection.existingCertSecret: optional: false. The user must create it
+        # first, and a pod that will not start is the correct, visible failure --
+        # far better than starting and discovering at first admission that there
+        # was no certificate to serve.
+        #
+        # Either way, once the Secret exists the kubelet projects it here and
+        # controller-runtime's cert watcher picks up rotations without a restart.
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "kagi-operator.webhookCertSecretName" . }}
+            optional: {{ if .Values.injection.existingCertSecret }}false{{ else }}true{{ end }}
+        {{- end }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
