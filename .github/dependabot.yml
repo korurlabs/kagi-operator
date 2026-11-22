@@ -1,0 +1,39 @@
+# Version updates for the workflows only. The operator's Go modules and
+# Dockerfile are copied from korurlabs/village (see MIGRATION.md), and each sync
+# replaces them, so their updates belong in village until this repository is the
+# source of truth. Everything under .github/ is kept by the sync, so updates to
+# it stick.
+#
+# Minor and patch bumps share one pull request; a major bump gets its own
+# because it may break. The cooldown holds a release back for a week, so a
+# hijacked version is usually yanked before it reaches a pull request.
+version: 2
+
+updates:
+  # GitHub Actions are dependencies of the pipelines, like libraries.
+  #
+  # 1. A workflow step such as this one in .github/workflows/ci.yml does not
+  #    run our code; it downloads and runs code from another repository:
+  #      uses: actions/checkout@v4
+  # 2. That repository (github.com/actions/checkout) holds a small program, a
+  #    TypeScript app started from its action.yml, that clones our code onto
+  #    the build machine. setup-go, cache and the docker actions work the same
+  #    way.
+  # 3. Its releases are git tags (v4.0.0, v4.1.0, ..., v5.0.0). @v4 follows
+  #    the newest v4 release, but never moves to v5 by itself.
+  # 4. When a new version is released, Dependabot opens a pull request that
+  #    bumps the reference (here @v4 to @v5), so the workflows do not fall
+  #    behind and every bump is reviewed and tested before it runs.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Europe/Istanbul
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
