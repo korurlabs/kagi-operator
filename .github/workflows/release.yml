@@ -7,6 +7,9 @@ name: Release
 #   - Artifact Hub ownership blob -> same OCI repo, tag "artifacthub.io"
 #   - raw install manifest + chart .tgz attached to a GitHub release here
 #
+# Nothing is published when either platform of the image has a CRITICAL or HIGH
+# vulnerability with a fixed version: the scan runs before the first push.
+#
 # Off until the migration's release step (MIGRATION.md): korurlabs/village still
 # publishes to the same ghcr.io packages on its kagi-operator/v* tags, and two
 # publishers must not race. Turn it on with the repository variable
@@ -64,6 +67,82 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A release never publishes an image with a CRITICAL or HIGH vulnerability
+      # that has a fixed version. The Docker daemon cannot hold a multi-arch
+      # image under one tag, so each platform is built and loaded on its own,
+      # under a local tag, and scanned; the base image's packages can differ per
+      # platform, so both are scanned. The multi-arch push below keeps its inputs
+      # unchanged and runs on the same builder, so every layer comes from the
+      # build cache: what it pushes is what was scanned, and the slow arm64 build
+      # under QEMU still runs only once.
+      - name: Build amd64 image for the vulnerability scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: kagi-operator:scan-amd64
+
+      - name: Build arm64 image for the vulnerability scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: kagi-operator:scan-arm64
+
+      # The vulnerability database is rebuilt every few hours; one cache entry a
+      # day, shared with the Trivy workflow on main, keeps the download off most
+      # runs.
+      - name: Date for the Trivy cache key
+        id: trivy-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Trivy database
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ steps.trivy-date.outputs.date }}
+          restore-keys: trivy-db-${{ runner.os }}-
+
+      # trivy-action had its version tags hijacked on 2026-03-19
+      # (GHSA-69fq-xp46-6x23): it is pinned to the commit of 0.35.0, which Aqua
+      # states was not affected, and the binary to a fixed version published
+      # after the incident. Never move either to a tag or `latest`.
+      - name: Scan amd64 image for fixable CRITICAL and HIGH vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          version: v0.76.2
+          # The database is cached by the step above.
+          cache: 'false'
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          scan-type: image
+          image-ref: kagi-operator:scan-amd64
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+
+      # The previous step installed the same Trivy binary on the PATH.
+      - name: Scan arm64 image for fixable CRITICAL and HIGH vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          skip-setup-trivy: 'true'
+          cache: 'false'
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          scan-type: image
+          image-ref: kagi-operator:scan-arm64
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
 
       # The kagi-init launcher binary is baked into this same image (see
       # Dockerfile) and self-resolved at runtime by the mutating webhook's init

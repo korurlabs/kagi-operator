@@ -1,8 +1,8 @@
 name: CI
 
-# Tests, chart lint and an image build on every pull request and every push to
-# main. Nothing is pushed: until the migration is done (MIGRATION.md), the
-# images that run anywhere are built in korurlabs/village.
+# Tests, chart lint, and an image build with a vulnerability scan on every pull
+# request and every push to main. Nothing is pushed: until the migration is done
+# (MIGRATION.md), the images that run anywhere are built in korurlabs/village.
 
 on:
   pull_request:
@@ -64,10 +64,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # Loaded into the local Docker daemon, never pushed, so the next steps can
+      # scan it.
       - name: Build image (not pushed)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           platforms: linux/amd64
+          load: true
           push: false
+          tags: kagi-operator:ci
+
+      # The vulnerability database is rebuilt every few hours; one cache entry a
+      # day, shared with the Trivy workflow on main, keeps the download off most
+      # runs.
+      - name: Date for the Trivy cache key
+        id: trivy-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Trivy database
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ steps.trivy-date.outputs.date }}
+          restore-keys: trivy-db-${{ runner.os }}-
+
+      # The same gate the release applies before it publishes: a fixable
+      # CRITICAL or HIGH vulnerability in the image fails the pull request, so it
+      # is fixed before it can block a release. trivy-action had its version
+      # tags hijacked on 2026-03-19 (GHSA-69fq-xp46-6x23): it is pinned to the
+      # commit of 0.35.0, which Aqua states was not affected, and the binary to
+      # a fixed version published after the incident.
+      - name: Scan image for fixable CRITICAL and HIGH vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          version: v0.76.2
+          # The database is cached by the step above.
+          cache: 'false'
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          scan-type: image
+          image-ref: kagi-operator:ci
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
