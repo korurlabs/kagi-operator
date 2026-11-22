@@ -42,8 +42,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      # The job token can write packages; it is not left in .git/config, where
+      # every later step, the vulnerability scanner included, could read it.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Derive version from tag
         id: version
@@ -61,13 +65,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to ghcr.io (Docker)
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       # A release never publishes an image with a CRITICAL or HIGH vulnerability
       # that has a fixed version. The Docker daemon cannot hold a multi-arch
       # image under one tag, so each platform is built and loaded on its own,
@@ -75,9 +72,11 @@ jobs:
       # platform, so both are scanned. The multi-arch push below keeps its inputs
       # unchanged and runs on the same builder, so every layer comes from the
       # build cache: what it pushes is what was scanned, and the slow arm64 build
-      # under QEMU still runs only once.
+      # under QEMU still runs only once. The builds and the scans run before the
+      # registry login, so the scanner never runs while a credential that can
+      # push packages is on disk.
       - name: Build amd64 image for the vulnerability scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -87,7 +86,7 @@ jobs:
           tags: kagi-operator:scan-amd64
 
       - name: Build arm64 image for the vulnerability scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -96,15 +95,15 @@ jobs:
           push: false
           tags: kagi-operator:scan-arm64
 
-      # The vulnerability database is rebuilt every few hours; one cache entry a
-      # day, shared with the Trivy workflow on main, keeps the download off most
-      # runs.
+      # The vulnerability database is rebuilt every few hours; the copy the Trivy
+      # workflow saves on main once a day keeps the download off most runs. A
+      # release only restores it, so it adds no cache entry of its own.
       - name: Date for the Trivy cache key
         id: trivy-date
         run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the Trivy database
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore the Trivy database
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/trivy-cache
           key: trivy-db-${{ runner.os }}-${{ steps.trivy-date.outputs.date }}
@@ -143,6 +142,13 @@ jobs:
           ignore-unfixed: true
           format: table
           exit-code: '1'
+
+      - name: Log in to ghcr.io (Docker)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # The kagi-init launcher binary is baked into this same image (see
       # Dockerfile) and self-resolved at runtime by the mutating webhook's init
