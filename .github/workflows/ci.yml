@@ -1,11 +1,13 @@
 name: CI
 
 # Tests, chart lint, and an image build with a vulnerability scan on every pull
-# request and every push to main. Nothing is pushed: until the migration is done
-# (MIGRATION.md), the images that run anywhere are built in korurlabs/village.
+# request, every merge queue candidate and every push to main. Nothing is
+# pushed: until the migration is done (MIGRATION.md), the images that run
+# anywhere are built in korurlabs/village.
 
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
   workflow_dispatch:
